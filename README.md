@@ -21,7 +21,7 @@ Building the Project to Analyze the Bank Statement for Retail Bank Customer - HM
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/adityacodes/flaskcbd.git
+git clone https://github.com/parody25/Bank_Statement_Analyzer.git
 
 ```
 
