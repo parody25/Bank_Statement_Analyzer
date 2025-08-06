@@ -3,22 +3,17 @@ Building the Project to Analyze the Bank Statement for Retail Bank Customer - HM
 
 # Project Structure
 
-my_project/
-├── app/
-│   ├── main.py
-|   ├── controllers/
-|   |    └── workflow_definition.py
-│   |    └── workflow_runner.py
-|   |    └── agents.py
-│   ├── models/
-│   ├── schemas/
-│   └── routers/
-│   |    └── document_upload.py
-│   |    └── report_analyzer.py
-|   └── utils/
-|        └── document_preprocessing.py   
-├── requirements.txt
-└── README.md
+
+
+├───controllers  -> Have Workflow Definition and Execution
+│   └───__pycache__
+├───models       -> 
+├───routers      -> Document Uploade and Event Trigger
+│   └───__pycache__
+├───schemas
+├───uploads
+├───utils
+└───__pycache__
 
 
 ## ⚙️ Setup Instructions
