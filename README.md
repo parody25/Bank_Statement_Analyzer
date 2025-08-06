@@ -4,7 +4,7 @@ Building the Project to Analyze the Bank Statement for Retail Bank Customer - HM
 # Project Structure
 
 
-
+```
 ├───controllers  -> Have Workflow Definition and Execution
 │   └───__pycache__
 ├───models       -> 
@@ -14,7 +14,7 @@ Building the Project to Analyze the Bank Statement for Retail Bank Customer - HM
 ├───uploads
 ├───utils
 └───__pycache__
-
+```
 
 ## ⚙️ Setup Instructions
 
