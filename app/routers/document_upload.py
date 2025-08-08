@@ -1,6 +1,7 @@
 import shutil
 import uuid
 import os
+import pandas as pd
 
 from typing import List
 
@@ -8,13 +9,18 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from pathlib import Path
 
+#Temporary import for pre-process 
+from utils.document_preprocessing import preprocess_documents, post_process_tables
+
 router = APIRouter(prefix="/upload",tags=["File Upload"])
 
 #UPLOAD_DIR = Path("uploads")
 #UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
-UPLOAD_DIR = f"{BASE_DIR}/uploads"
+UPLOAD_DIR = f"{BASE_DIR}/uploads/document_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+FINAL_CSV_DIR = f"{BASE_DIR}/uploads/final_csv_uploads"
+os.makedirs(FINAL_CSV_DIR, exist_ok=True)
 
 
 
@@ -60,6 +66,23 @@ async def upload_file(files: List[UploadFile] = File(...)):
                 "status": "failed",
                 "reason": f"Error saving file: {str(e)}"
             })
+        
+    # Temprorary Step Preprocess documents
+    preprocessed_docs = await preprocess_documents(UPLOAD_DIR)
+    if not preprocessed_docs: 
+        raise HTTPException(status_code=500, detail="No documents were preprocessed successfully.")
+    
+    # Post-process tables and save to CSV
+    combined_df = post_process_tables()
+    if not combined_df.empty:
+        # Save the combined CSV to the final directory 
+        final_csv_path = os.path.join(FINAL_CSV_DIR, f"combined_{uuid.uuid4().hex}.csv") 
+        combined_df.to_csv(final_csv_path, index=False)
+        print("Final CSV saved at:", final_csv_path) 
+    else:
+        raise HTTPException(status_code=500, detail="Post-processing of tables failed.") 
+    
+
 
     #return JSONResponse(content={"results": results}, status_code=200 if all(r["status"] == "success" for r in results) else 400)
     return JSONResponse(status_code=207, content={"results": results})
