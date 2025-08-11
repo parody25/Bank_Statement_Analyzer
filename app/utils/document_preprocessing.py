@@ -25,6 +25,7 @@ from langchain_openai import ChatOpenAI
 
 #Pandas Imports to handle DataFrames and Tables
 import pandas as pd
+import numpy as np
 
 
 
@@ -173,6 +174,39 @@ def post_process_tables():
             #response = StandardizeResponse(parsed_response)
             if response["aligned_table"]: 
                 combined_df.rename(columns=response["rename"], inplace=True)
+
+                #Changing the DataType for the Columns 
+                print(combined_df.dtypes)
+                cols_type = ['TransactionDate','Credit', 'Debit', 'Balance']
+                cols_type = ["TransactionDate"]
+                if "TransactionDate" in combined_df.columns:
+                    combined_df['TransactionDate'] = pd.to_datetime(combined_df['TransactionDate'], errors='coerce', dayfirst=True)
+                    print("TransactionDate converted to datetime:", combined_df['TransactionDate'].dtypes)
+                    print("TransactionDate values:", combined_df['TransactionDate'].head())
+                if "Credit" in combined_df.columns:
+                    combined_df['Credit'] = pd.to_numeric(combined_df['Credit'], errors='coerce').astype(float).fillna(0.0)
+                    print("Credit converted to float:", combined_df['Credit'].dtypes)
+                    print("Credit values:", combined_df['Credit'].head())
+                if "Debit" in combined_df.columns:
+                    combined_df['Debit'] = pd.to_numeric(combined_df['Debit'], errors='coerce').astype(float).fillna(0.0)
+                    print("Debit converted to float:", combined_df['Debit'].dtypes)
+                    print("Debit values:", combined_df['Debit'].head()) 
+                
+                if "Balance" in combined_df.columns:
+                    combined_df['Balance'] = pd.to_numeric(combined_df['Balance'], errors='coerce').astype(float).fillna(0.0)
+                    print("Balance converted to float:", combined_df['Balance'].dtypes)
+                    print("Balance values:", combined_df['Balance'].head()) 
+                # Add a new column 'Type' based on Credit and Debit values
+                if "Credit" in combined_df.columns and "Debit" in combined_df.columns:
+                    combined_df['Type'] = None  # ensures object dtype for strings
+                    combined_df.loc[combined_df['Credit'].fillna(0) > 0, 'Type'] = 'credit'
+                    combined_df.loc[combined_df['Debit'].fillna(0) > 0, 'Type'] = 'debit'
+                #if "Credit" in combined_df.columns and "Debit" in combined_df.columns:
+                #    combined_df['Type'] = np.where(
+                #        combined_df['Credit'].fillna(0) > 0, 'credit',
+                #        np.where(combined_df['Debit'].fillna(0) > 0, 'debit', None)
+                #    )
+                print("Data types after conversion:", combined_df.dtypes)
             else:
                 print("Table is not standardized. Please check the rename mapping.")
         except ValidationError as e:
