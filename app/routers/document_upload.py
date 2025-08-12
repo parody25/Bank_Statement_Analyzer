@@ -11,6 +11,7 @@ from pathlib import Path
 
 #Temporary import for pre-process 
 from utils.document_preprocessing import preprocess_documents, post_process_tables
+from utils.transaction_filter import filter_transactions
 
 router = APIRouter(prefix="/upload",tags=["File Upload"])
 
@@ -82,7 +83,21 @@ async def upload_file(files: List[UploadFile] = File(...)):
     else:
         raise HTTPException(status_code=500, detail="Post-processing of tables failed.") 
     
+    try:
+        filter_results = filter_transactions(final_csv_path)
+    except Exception as e:
+        print(f"Error during transaction filtering: {e}")
+        filter_results = {"error": str(e)}
 
+    print("Filter results:", filter_results)
+
+    return JSONResponse(
+        status_code=207,
+        content={
+            "results": results,
+            "filter_results": filter_results
+        }
+    )
 
     #return JSONResponse(content={"results": results}, status_code=200 if all(r["status"] == "success" for r in results) else 400)
     return JSONResponse(status_code=207, content={"results": results})
