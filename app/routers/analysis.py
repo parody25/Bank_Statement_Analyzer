@@ -1,7 +1,7 @@
 import os
 import glob
 import re
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import pandas as pd
 from fastapi import APIRouter, Query, HTTPException
@@ -20,11 +20,6 @@ BATCH_SIZE = 40  # number of rows per LLM call (adjust as needed)
 
 
 def find_file(file_type: str, uuid_str: Optional[str] = None) -> str:
-    """
-    Find a file in DATA_DIR.
-    If uuid_str is provided, look for file_type_uuid.csv.
-    Otherwise return the latest file matching file_type_*.csv
-    """
     if uuid_str:
         path = os.path.join(DATA_DIR, f"{file_type}_{uuid_str}.csv")
         if not os.path.exists(path):
@@ -45,11 +40,6 @@ def extract_uuid_from_filename(path: str) -> str:
 
 
 def normalize_df_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize column names to known set if possible.
-    Also drop the transaction reference column if present.
-    """
-    # Map common variants to canonical names
     new_cols = {}
     for col in df.columns:
         lc = col.strip().lower()
@@ -66,31 +56,41 @@ def normalize_df_columns(df: pd.DataFrame) -> pd.DataFrame:
         elif lc == "credit":
             new_cols[col] = "Credit"
         else:
-            new_cols[col] = col  # leave as-is
-
+            new_cols[col] = col
     df = df.rename(columns=new_cols)
-    # drop TransactionReference if present
     if "TransactionReference" in df.columns:
         df = df.drop(columns=["TransactionReference"])
     return df
 
 
-def build_batch_prompt(rows: List[dict]) -> str:
-    """
-    Build a prompt for the LLM to classify a batch of rows.
-    We instruct the model to return only labels 'Recurring' or 'Irregular'
-    one-per-line in the same order as the rows.
-    """
+def build_batch_prompt(rows: List[dict], kind: str) -> str:
+    if kind == "credit":
+        labels = "Recurring, Irregular, Others"
+        label_rules = (
+            "- 'Recurring': Regular salary, interest, etc.\n"
+            "- 'Irregular': One-off or unusual income.\n"
+            "- 'Others': Cash deposit.\n"
+        )
+    else:  # debit
+        labels = "EMI, Utility Payment, Others"
+        label_rules = (
+            "- 'EMI': Loan EMI payments.\n"
+            "- 'Utility Payment': Grocery, transport, movie, or other service payments.\n"
+            "- 'Others': Cash withdrawal from account.\n"
+        )
+
     instructions = (
-        "You are given a list of bank transactions. For each transaction, "
-        "classify it as exactly one of these labels: Recurring or Irregular.\n\n"
-        "Rules:\n"
-        "- Use exactly 'Recurring' or 'Irregular' (capitalized exactly like this).\n"
-        "- Output only the labels, one per line, in the same order as the input rows.\n"
-        "- No additional commentary or formatting.\n\n"
+        f"You are given a list of bank transactions ({kind} side). For each transaction:\n"
+        f"1. Classify it as exactly one of: {labels}.\n"
+        f"2. Provide a brief explanation (3–6 words) describing the transaction.\n\n"
+        f"Rules:\n{label_rules}"
+        "- Explanation should be short and clear.\n"
+        "- Output format: <Label> | <Explanation>\n"
+        "- One result per line, same order as input rows.\n\n"
         "Example:\n"
-        "Monthly Salary | Debit: 0.0 | Credit: 2512.0  -> Recurring\n\n"
-        "Now classify the following transactions:\n"
+        "Recurring | Monthly salary credited\n"
+        "Others | Cash deposit by self\n\n"
+        "Now process the following transactions:\n"
     )
 
     lines = []
@@ -100,92 +100,58 @@ def build_batch_prompt(rows: List[dict]) -> str:
         credit = r.get("Credit", 0)
         lines.append(f"Narrative: {narrative} | Debit: {debit} | Credit: {credit}")
 
-    prompt = instructions + "\n".join(lines) + "\n\nRespond with labels now:\n"
-    return prompt
+    return instructions + "\n".join(lines) + "\n\nRespond now:\n"
 
 
-def parse_labels_from_response(text: str, expected_count: int) -> List[str]:
-    """
-    Parse LLM response into a list of labels (Recurring/Irregular).
-    If parsing fails or counts mismatch, returns an empty list to signal fallback.
-    """
+def parse_labels_and_explanations(text: str, expected_count: int) -> Tuple[List[str], List[str]]:
+    labels, explanations = [], []
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    labels = []
     for ln in lines:
-        # try to find recurring or irregular in the line
-        if re.search(r"\brecurr", ln, re.I):
-            labels.append("Recurring")
-        elif re.search(r"\birreg", ln, re.I):
-            labels.append("Irregular")
-        # allow lines that are exactly the words
-        elif ln.lower() in ("recurring", "irregular"):
-            labels.append(ln.capitalize())
-
-    if len(labels) == expected_count:
-        return labels
-    # fallback: if not exact match, try filtering lines with only expected words
-    simple = [ln for ln in lines if ln.lower() in ("recurring", "irregular")]
-    if len(simple) == expected_count:
-        return [s.capitalize() for s in simple]
-
-    # failed to parse matching count
-    return []
+        parts = [p.strip() for p in ln.split("|", 1)]
+        if len(parts) == 2:
+            label, expl = parts
+        else:
+            label, expl = parts[0], ""
+        labels.append(label)
+        explanations.append(expl)
+    if len(labels) != expected_count:
+        return [], []
+    return labels, explanations
 
 
-async def classify_dataframe(df: pd.DataFrame) -> List[str]:
-    """
-    Classify the dataframe rows in batches. Returns list of labels same length as df.
-    If LLM parsing fails for a batch, fallback to classify each row individually.
-    """
-    labels = []
+async def classify_dataframe(df: pd.DataFrame, kind: str) -> Tuple[List[str], List[str]]:
+    labels_all, expl_all = [], []
     rows = df.to_dict(orient="records")
 
-    # process in batches
     for i in range(0, len(rows), BATCH_SIZE):
-        batch = rows[i : i + BATCH_SIZE]
-        prompt = build_batch_prompt(batch)
+        batch = rows[i:i + BATCH_SIZE]
+        prompt = build_batch_prompt(batch, kind)
         try:
             resp = await llm.acomplete(prompt)
             text = str(resp).strip()
-            parsed = parse_labels_from_response(text, expected_count=len(batch))
-            if not parsed:
-                # fallback to per-row classification
-                parsed = []
-                for r in batch:
-                    single_prompt = (
-                        "Classify this single transaction as exactly one of: Recurring or Irregular.\n\n"
-                        f"Narrative: {r.get('Narrative','')} | Debit: {r.get('Debit',0)} | Credit: {r.get('Credit',0)}\n"
-                        "Respond with exactly one word: Recurring or Irregular."
-                    )
-                    sresp = await llm.acomplete(single_prompt)
-                    stext = str(sresp).strip()
-                    if re.search(r"\brecurr", stext, re.I):
-                        parsed.append("Recurring")
-                    elif re.search(r"\birreg", stext, re.I):
-                        parsed.append("Irregular")
-                    elif stext.lower() in ("recurring", "irregular"):
-                        parsed.append(stext.capitalize())
-                    else:
-                        parsed.append("Irregular")  # conservative default
-            labels.extend(parsed)
-        except Exception as e:
-            # if the LLM failed, mark batch as Irregular to be conservative
-            labels.extend(["Irregular"] * len(batch))
+            labels, expls = parse_labels_and_explanations(text, len(batch))
 
-    # final safety: ensure same length
-    if len(labels) != len(rows):
-        # fill remaining with Irregular
-        while len(labels) < len(rows):
-            labels.append("Irregular")
-        labels = labels[: len(rows)]
-    return labels
+            if not labels:
+                if kind == "credit":
+                    labels = ["Irregular"] * len(batch)
+                else:
+                    labels = ["Utility Payment"] * len(batch)
+                expls = ["No clear info"] * len(batch)
+
+            labels_all.extend(labels)
+            expl_all.extend(expls)
+        except Exception:
+            if kind == "credit":
+                labels_all.extend(["Irregular"] * len(batch))
+            else:
+                labels_all.extend(["Utility Payment"] * len(batch)
+                )
+            expl_all.extend(["No clear info"] * len(batch))
+
+    return labels_all, expl_all
 
 
 def save_classified_csv(df: pd.DataFrame, original_path: str, kind: str) -> str:
-    """
-    Save classified CSV next to original with suffix _classified.
-    Returns the saved path.
-    """
     uuid_part = extract_uuid_from_filename(original_path)
     out_name = f"classified_{kind}_{uuid_part}.csv"
     out_path = os.path.join(DATA_DIR, out_name)
@@ -194,10 +160,6 @@ def save_classified_csv(df: pd.DataFrame, original_path: str, kind: str) -> str:
 
 
 async def _run_analysis_for_kind(kind: str, uuid_str: Optional[str]) -> dict:
-    """
-    Common runner for credit or debit.
-    kind should be 'credit' or 'debit'.
-    """
     path = find_file(kind, uuid_str)
     df = pd.read_csv(path)
     if df.empty:
@@ -205,33 +167,22 @@ async def _run_analysis_for_kind(kind: str, uuid_str: Optional[str]) -> dict:
 
     df = normalize_df_columns(df)
 
-    # ensure required columns exist (best-effort)
     if "Narrative" not in df.columns:
         raise HTTPException(status_code=400, detail="CSV missing Narrative column")
     if "Debit" not in df.columns and "Credit" not in df.columns:
         raise HTTPException(status_code=400, detail="CSV missing Debit/Credit columns")
 
-    labels = await classify_dataframe(df)
-
-    # Drop reference column if any leftover (redundant safety)
-    ref_cols = [c for c in df.columns if "reference" in c.lower()]
-    if ref_cols:
-        df = df.drop(columns=ref_cols)
-
-    # Add classification column
+    labels, explanations = await classify_dataframe(df, kind)
     df["Classification"] = labels
+    df["Explanation"] = explanations
 
     saved_path = save_classified_csv(df, path, kind)
-    # also return small sample to caller
     sample = df.head(10).to_dict(orient="records")
     return {"original": path, "classified_path": saved_path, "rows": len(df), "sample": sample}
 
 
 @router.post("/credit")
 async def analyze_credit(uuid: Optional[str] = Query(None, description="UUID part of credit_<uuid>.csv (optional)")):
-    """
-    Classify the credit CSV. If uuid not provided picks the latest credit_*.csv in DATA_DIR.
-    """
     try:
         result = await _run_analysis_for_kind("credit", uuid)
         return JSONResponse(content=result)
@@ -245,9 +196,6 @@ async def analyze_credit(uuid: Optional[str] = Query(None, description="UUID par
 
 @router.post("/debit")
 async def analyze_debit(uuid: Optional[str] = Query(None, description="UUID part of debit_<uuid>.csv (optional)")):
-    """
-    Classify the debit CSV. If uuid not provided picks the latest debit_*.csv in DATA_DIR.
-    """
     try:
         result = await _run_analysis_for_kind("debit", uuid)
         return JSONResponse(content=result)
