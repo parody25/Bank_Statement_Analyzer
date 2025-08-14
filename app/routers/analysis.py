@@ -1,9 +1,11 @@
+import json
 import os
 import glob
 import re
 from typing import Optional, List, Tuple
 
 import pandas as pd
+from pydantic import BaseModel
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
@@ -203,5 +205,216 @@ async def analyze_debit(uuid: Optional[str] = Query(None, description="UUID part
         raise HTTPException(status_code=404, detail=str(fe))
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+class SurplusResponse(BaseModel):
+    total_income: float
+    total_expenses: float
+    net_surplus: float
+    analysis: str
+
+class DTIResponse(BaseModel):
+    total_income: float
+    total_debt_payments: float
+    dti_ratio: float
+    analysis: str
+
+class BehavioralResponse(BaseModel):
+    behavioral_score: int
+    analysis: str
+
+@router.post("/surplus", summary="Analyze Financial Surplus", response_model=SurplusResponse)
+async def analyze_surplus(uuid: str = Query(..., description="UUID part of the classified credit/debit files.")):
+    try:
+        credit_path = find_file("classified_credit", uuid)
+        debit_path = find_file("classified_debit", uuid)
+
+        df_credit = pd.read_csv(credit_path)
+        df_debit = pd.read_csv(debit_path)
+
+        total_income = df_credit['Credit'].sum()
+        total_expenses = df_debit['Debit'].sum()
+        net_surplus = total_income - total_expenses
+
+        prompt = (
+            f"Analyze the financial health based on the following data:\n"
+            f"- Total Income: {total_income:.2f}\n"
+            f"- Total Expenses: {total_expenses:.2f}\n"
+            f"- Net Surplus/Deficit: {net_surplus:.2f}\n\n"
+            f"Provide a brief, one-paragraph qualitative analysis of this cash flow situation. "
+            f"Comment on whether the surplus is healthy, marginal, or if a deficit is a concern. "
+            f"Return ONLY the analysis paragraph."
+        )
+        resp = await llm.acomplete(prompt)
+        analysis_text = str(resp).strip()
+
+        return SurplusResponse(
+            total_income=total_income,
+            total_expenses=total_expenses,
+            net_surplus=net_surplus,
+            analysis=analysis_text
+        )
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=404, detail=str(fe))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/dti", summary="Analyze Debt-to-Income Ratio", response_model=DTIResponse)
+async def analyze_dti(uuid: str = Query(..., description="UUID part of the classified credit/debit files.")):
+    try:
+        credit_path = find_file("classified_credit", uuid)
+        debit_path = find_file("classified_debit", uuid)
+
+        df_credit = pd.read_csv(credit_path)
+        df_debit = pd.read_csv(debit_path)
+
+        total_income = df_credit['Credit'].sum()
+        emi_df = df_debit[df_debit['Classification'] == 'EMI']
+        total_debt_payments = emi_df['Debit'].sum()
+        
+        dti_ratio = (total_debt_payments / total_income) * 100 if total_income > 0 else 0
+
+        prompt = (
+            f"Analyze the Debt-to-Income (DTI) ratio based on the following data:\n"
+            f"- Total Income: {total_income:.2f}\n"
+            f"- Total Debt (EMI) Payments: {total_debt_payments:.2f}\n"
+            f"- Calculated DTI Ratio: {dti_ratio:.2f}%\n\n"
+            f"Provide a brief, one-paragraph analysis. A DTI below 36% is good, 36-43% is manageable, "
+            f"and above 43% is a high-risk indicator. Return ONLY the analysis paragraph."
+        )
+        resp = await llm.acomplete(prompt)
+        analysis_text = str(resp).strip()
+
+        return DTIResponse(
+            total_income=total_income,
+            total_debt_payments=total_debt_payments,
+            dti_ratio=dti_ratio,
+            analysis=analysis_text
+        )
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=404, detail=str(fe))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/behavioral", summary="Analyze Financial Behavior", response_model=BehavioralResponse)
+async def analyze_behavioral(uuid: str = Query(..., description="UUID part of the classified credit/debit files.")):
+    try:
+        credit_path = find_file("classified_credit", uuid)
+        debit_path = find_file("classified_debit", uuid)
+
+        df_credit = pd.read_csv(credit_path)
+        df_debit = pd.read_csv(debit_path)
+        
+        full_df = pd.concat([df_credit, df_debit], ignore_index=True)
+        full_df['TransactionDate'] = pd.to_datetime(full_df['TransactionDate'])
+        full_df = full_df.sort_values(by='TransactionDate')
+
+        # To keep the prompt clean, we'll only send the relevant columns
+        report_df = full_df[['TransactionDate', 'Narrative', 'Debit', 'Credit', 'Classification']]
+        transactions_md = report_df.to_markdown(index=False)
+        
+        prompt = (
+            f"Analyze the following list of transactions to identify key financial behaviors and generate a score.\n"
+            f"Return a JSON object with two keys: 'score' (an integer 0-100) and 'analysis' (a summary paragraph).\n"
+            f"Scoring Guide:\n"
+            f"- 80-100: Excellent (Consistent savings, disciplined spending, no risk indicators).\n"
+            f"- 60-79: Good (Some savings, generally responsible spending, few risk indicators).\n"
+            f"- 40-59: Average (Inconsistent savings, some impulsive spending).\n"
+            f"- 0-39: Concerning (Little to no savings, high-risk spending, multiple red flags).\n\n"
+            f"Transactions:\n{transactions_md}\n\n"
+            f"Respond with ONLY the raw JSON object."
+        )
+        resp = await llm.acomplete(prompt)
+        
+        raw_text = resp.text.strip()
+        json_start = raw_text.find('{')
+        json_end = raw_text.rfind('}') + 1
+
+        if json_start == -1 or json_end == 0:
+            raise HTTPException(status_code=500, detail="LLM response did not contain a valid JSON object.")
+
+        json_string = raw_text[json_start:json_end]
+        
+        try:
+            result_json = json.loads(json_string)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail=f"Failed to parse cleaned JSON from LLM response: {json_string}")
+
+        return BehavioralResponse(
+            behavioral_score=result_json.get('score', 0),
+            analysis=result_json.get('analysis', 'Analysis could not be generated.')
+        )
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=404, detail=str(fe))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/report", summary="Generate Final Report")
+async def generate_final_report(uuid: str = Query(..., description="UUID part of the classified credit/debit files.")):
+    try:
+        # --- 1. Gather all necessary data by reading classified files ---
+        credit_path = find_file("classified_credit", uuid)
+        debit_path = find_file("classified_debit", uuid)
+        df_credit = pd.read_csv(credit_path)
+        df_debit = pd.read_csv(debit_path)
+        df_full = pd.concat([df_credit, df_debit], ignore_index=True)
+
+        # --- 2. Perform calculations for all sections ---
+        total_income = df_credit['Credit'].sum()
+        total_expenses = df_debit['Debit'].sum()
+        net_surplus = total_income - total_expenses
+        
+        emi_df = df_debit[df_debit['Classification'] == 'EMI']
+        total_debt_payments = emi_df['Debit'].sum()
+        dti_ratio = (total_debt_payments / total_income) * 100 if total_income > 0 else 0
+
+        # --- 3. Create a comprehensive context string for the final prompt ---
+        context = (
+            f"## Income Analysis\n"
+            f"Total Income: {total_income:.2f}\n"
+            f"Income Transactions:\n{df_credit[['TransactionDate', 'Narrative', 'Credit', 'Classification']].to_markdown(index=False)}\n\n"
+            f"## Expense Analysis\n"
+            f"Total Expenses: {total_expenses:.2f}\n"
+            f"Expense Transactions:\n{df_debit[['TransactionDate', 'Narrative', 'Debit', 'Classification']].to_markdown(index=False)}\n\n"
+            f"## Cash Flow Summary\n"
+            f"Net Surplus: {net_surplus:.2f}\n\n"
+            f"## Debt-to-Income Summary\n"
+            f"DTI Ratio: {dti_ratio:.2f}%\n\n"
+        )
+
+        # --- 4. Build the final prompt ---
+        prompt = (
+            f"You are a financial analyst. Synthesize the provided data into a comprehensive report. "
+            f"The output must be a single, well-structured JSON object with the keys 'executive_summary', "
+            f"'income_analysis', 'expense_analysis', 'cash_flow_analysis', 'debt_to_income_analysis', and "
+            f"'financial_behavior_analysis'.\n\n"
+            f"Use the following data to construct your report:\n{context}\n\n"
+            f"Based on all the data, also generate a behavioral analysis with a score and qualitative summary. "
+            f"Finally, create a 2-3 sentence executive summary for the very top of the report.\n\n"
+            f"Respond with ONLY the raw JSON object."
+        )
+
+        # --- 5. Get and return the final report ---
+        resp = await llm.acomplete(prompt)
+        
+        raw_text = resp.text.strip()
+        json_start = raw_text.find('{')
+        json_end = raw_text.rfind('}') + 1
+
+        if json_start == -1 or json_end == 0:
+            raise HTTPException(status_code=500, detail="LLM response did not contain a valid JSON object for the final report.")
+
+        json_string = raw_text[json_start:json_end]
+        
+        try:
+            report_json = json.loads(json_string)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail=f"Failed to parse cleaned JSON from LLM response for the final report: {json_string}")
+
+        return JSONResponse(content=report_json)
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=404, detail=str(fe))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
