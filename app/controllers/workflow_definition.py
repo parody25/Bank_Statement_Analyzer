@@ -13,10 +13,20 @@ from llama_index.utils.workflow import (
     draw_most_recent_execution,
 )
 
+import pandas as pd
+
+from typing import Dict, Any, List, Union
+from . import steps
+
+
+
+
+
+
 
 class MyCustomStartEvent(StartEvent):
     #document: dataframe
-    document: str
+    document: pd.DataFrame  # Assuming the document is a DataFrame
     
     
 class TriggerCredit(Event): pass
@@ -28,11 +38,11 @@ class TriggerBehavioral(Event): pass
     
 class CreditClassifyEvent(Event):
     #result: 
-    result: str
+    result: pd.DataFrame   # Assuming the result is a dictionary with classification results
     
 class DebitClassifyEvent(Event):
     #result:
-    result: str
+    result: pd.DataFrame  # Assuming the result is a dictionary with classification results
     
 class SurplusAnalysisEvent(Event):
     #result:
@@ -73,9 +83,14 @@ class BankStatementAnalyzer(Workflow):
         
         #Get the Dataframe in the Context
         document = await ctx.store.get("document")
+        
         #Filter the credit transaction using the Dataframe and Use LLM to classify the Event 
-        #Store the Dataframe for credit transaction classified in the context 
-        response = "This is the Response for CreditClassifyEvent"
+        #Store the Dataframe for credit transaction classified in the context
+        response = steps.credit_analysis(document)
+        # Assuming response is a dict or similar result from the LLM
+        await ctx.store.set("credit_classify_result", response)
+        #response = [{"Result":"This is the Response for CreditClassifyEvent"}]
+        print("Credit Classification Result:", response)
         return CreditClassifyEvent(result=response)
     
     @step
@@ -85,7 +100,10 @@ class BankStatementAnalyzer(Workflow):
         document = await ctx.store.get("document")
         #Filter the Debit transaction using the Dataframe and Use LLM to classify the Event 
         #Store the Dataframe for debit transaction classified in the context 
-        response = "This is the Response for DebitClassifyEvent"
+        response = steps.debit_analysis(document)
+        await ctx.store.set("debit_classify_result", response)
+        #response = "This is the Response for DebitClassifyEvent"
+        print("Debit Classification Result:", response)
         return DebitClassifyEvent(result=response)
 
     @step
@@ -96,8 +114,8 @@ class BankStatementAnalyzer(Workflow):
         credit_event, debit_event = results
         
         #Storing the Classification results in the Context
-        await ctx.store.set("credit_classify_result",ev.result)
-        await ctx.store.set("debit_classify_result",ev.result)
+        #await ctx.store.set("credit_classify_result",ev.result)
+        #await ctx.store.set("debit_classify_result",ev.result)
         
         # Send the Events to Execute Parallely
         ctx.send_event(TriggerSurplus())
@@ -111,17 +129,22 @@ class BankStatementAnalyzer(Workflow):
         debit_classify = await ctx.store.get("debit_classify_result")
         
         #Using Dataframe operation for calculation and use the LLM to Reason over it 
-        
+        # For example, calculating surplus from credit and debit classifications
+        #response = steps.surplus_commentry(credit_classify, debit_classify)
+        #await ctx.store.set("surplus_analysis_result", response)
         response = "This is the Response for Surplus Analysis Event"
         return SurplusAnalysisEvent(result=response)
     
     @step
     async def dti_analysis(self, ctx: Context, ev: TriggerDTI) -> DebtToIncomeEvent:
         #Get the Classify data from the Context
-        credit_classify = await ctx.store.get("credit_classify_result")
-        debit_classify = await ctx.store.get("debit_classify_result")
+        #credit_classify = await ctx.store.get("credit_classify_result")
+        #debit_classify = await ctx.store.get("debit_classify_result")
         
-        #Using Dataframe operation for calculation and use the LLM to Reason over it 
+        #Using Dataframe operation for calculation and use the LLM to Reason over it
+        # For example, calculating debt-to-income ratio from credit and debit classifications
+        #response = steps.dti_commentry(credit_classify, debit_classify)
+        #await ctx.store.set("dti_analysis_result", response)
         
         response = "This is the Response for Debit To Income Analysis Event"
         return DebtToIncomeEvent(result=response)
@@ -129,10 +152,13 @@ class BankStatementAnalyzer(Workflow):
     @step
     async def behavioral_analysis(self, ctx: Context, ev: TriggerBehavioral) -> BehavioralScoreEvent:
         #Get the Classify data from the Context
-        credit_classify = await ctx.store.get("credit_classify_result")
-        debit_classify = await ctx.store.get("debit_classify_result")
+        #credit_classify = await ctx.store.get("credit_classify_result")
+        #debit_classify = await ctx.store.get("debit_classify_result")
         
-        #Using Dataframe operation for calculation and use the LLM to Reason over it 
+        #Using Dataframe operation for calculation and use the LLM to Reason over it
+        # For example, calculating behavioral score from credit and debit classifications
+        #response = steps.behavioral_commentry(credit_classify, debit_classify)
+        #await ctx.store.set("behavioral_analysis_result", response)
         
         response = "This is the Response for Debit To Behavioral Analysis & Score Event"
         return BehavioralScoreEvent(result=response)
@@ -148,7 +174,11 @@ class BankStatementAnalyzer(Workflow):
 
         # unpack -- data is returned in order
         surplus_event, debt_to_income_event, behavioral_score_event = data
-        
+        # Generate the report based on the analysis results
+        # Note: This is a placeholder for the actual report generation logic
+        print("Surplus Analysis Result:", surplus_event.result)
+        print("Debt to Income Analysis Result:", debt_to_income_event.result)
+        print("Behavioral Score Analysis Result:", behavioral_score_event.result)        
         # Need to Modify the Code as per the prompt and LLM Call 
         prompt = f"Give a thorough analysis and generate report on the following questions mentioned for a particular customer Bank Statement and provide the confidence score on your analysis{surplus_event.result}, {debt_to_income_event.result}, {behavioral_score_event.result}"
         #response = await self.llm.acomplete(prompt)

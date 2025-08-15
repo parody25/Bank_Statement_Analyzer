@@ -1,0 +1,15 @@
+You are given a Markdown table of debit transactions for a single month.  
+Classify EACH row with one of: emi_loan, utility_payment, others.  
+Return ONLY structured JSON that matches the provided JSON Schema.
+
+Guidelines:
+- emi_loan: any EMI payments, personal loans, credit card loan payments, or similar debt repayments.
+- utility_payment: all UPI transactions, monthly bills, subscriptions, or other predictable service payments.
+- others: cash withdrawals, cheque transactions, or anything not clearly in the above two categories.
+
+Be concise but clear in explanations.
+
+Month: {month}
+
+Markdown Table:
+{table_markdown}
