@@ -46,15 +46,15 @@ class DebitClassifyEvent(Event):
     
 class SurplusAnalysisEvent(Event):
     #result:
-    result: str
+    result: Dict[str, Any]  # Assuming the result is a dictionary with surplus analysis results
     
 class DebtToIncomeEvent(Event):
     #result:
-    result: str 
+    result: Dict[str, Any]  # Assuming the result is a dictionary with debt-to-income analysis results
     
 class BehavioralScoreEvent(Event):
     #result:
-    result: str
+    result: Dict[str, Any]  # Assuming the result is a dictionary with behavioral score analysis results    
     
     
 
@@ -130,37 +130,39 @@ class BankStatementAnalyzer(Workflow):
         
         #Using Dataframe operation for calculation and use the LLM to Reason over it 
         # For example, calculating surplus from credit and debit classifications
-        #response = steps.surplus_commentry(credit_classify, debit_classify)
-        #await ctx.store.set("surplus_analysis_result", response)
-        response = "This is the Response for Surplus Analysis Event"
+        response = steps.surplus_commentry(credit_classify, debit_classify)
+        # Store the result in the context
+        print("Surplus Analysis Result:", response)
+        await ctx.store.set("surplus_analysis_result", response)
+        #response = "This is the Response for Surplus Analysis Event"
         return SurplusAnalysisEvent(result=response)
     
     @step
     async def dti_analysis(self, ctx: Context, ev: TriggerDTI) -> DebtToIncomeEvent:
         #Get the Classify data from the Context
-        #credit_classify = await ctx.store.get("credit_classify_result")
-        #debit_classify = await ctx.store.get("debit_classify_result")
+        credit_classify = await ctx.store.get("credit_classify_result")
+        debit_classify = await ctx.store.get("debit_classify_result")
         
         #Using Dataframe operation for calculation and use the LLM to Reason over it
         # For example, calculating debt-to-income ratio from credit and debit classifications
-        #response = steps.dti_commentry(credit_classify, debit_classify)
-        #await ctx.store.set("dti_analysis_result", response)
+        response = steps.dti_commentry(credit_classify, debit_classify)
+        await ctx.store.set("dti_analysis_result", response)
         
-        response = "This is the Response for Debit To Income Analysis Event"
+        #response = "This is the Response for Debit To Income Analysis Event"
         return DebtToIncomeEvent(result=response)
     
     @step
     async def behavioral_analysis(self, ctx: Context, ev: TriggerBehavioral) -> BehavioralScoreEvent:
         #Get the Classify data from the Context
-        #credit_classify = await ctx.store.get("credit_classify_result")
-        #debit_classify = await ctx.store.get("debit_classify_result")
+        credit_classify = await ctx.store.get("credit_classify_result")
+        debit_classify = await ctx.store.get("debit_classify_result")
         
         #Using Dataframe operation for calculation and use the LLM to Reason over it
         # For example, calculating behavioral score from credit and debit classifications
-        #response = steps.behavioral_commentry(credit_classify, debit_classify)
-        #await ctx.store.set("behavioral_analysis_result", response)
+        response = steps.behavioral_commentry(credit_classify, debit_classify)
+        await ctx.store.set("behavioral_analysis_result", response)
         
-        response = "This is the Response for Debit To Behavioral Analysis & Score Event"
+        #response = "This is the Response for Behavioral Analysis & Score Event"
         return BehavioralScoreEvent(result=response)
         
     @step
