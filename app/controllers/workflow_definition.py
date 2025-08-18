@@ -18,6 +18,11 @@ import pandas as pd
 from typing import Dict, Any, List, Union
 from . import steps
 
+#Langchain Imports 
+from langchain.schema.runnable import Runnable
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+
 
 
 
@@ -178,13 +183,28 @@ class BankStatementAnalyzer(Workflow):
         surplus_event, debt_to_income_event, behavioral_score_event = data
         # Generate the report based on the analysis results
         # Note: This is a placeholder for the actual report generation logic
-        print("Surplus Analysis Result:", surplus_event.result)
-        print("Debt to Income Analysis Result:", debt_to_income_event.result)
-        print("Behavioral Score Analysis Result:", behavioral_score_event.result)        
+        print("Surplus Analysis Result:", surplus_event.result["result"])
+        print("Debt to Income Analysis Result:", debt_to_income_event.result["result"])
+        print("Behavioral Score Analysis Result:", behavioral_score_event.result["result"])        
         # Need to Modify the Code as per the prompt and LLM Call 
-        prompt = f"Give a thorough analysis and generate report on the following questions mentioned for a particular customer Bank Statement and provide the confidence score on your analysis{surplus_event.result}, {debt_to_income_event.result}, {behavioral_score_event.result}"
+        #prompt = f"Give a thorough analysis and generate report on the following questions mentioned for a particular customer Bank Statement and provide the confidence score on your analysis{surplus_event.result}, {debt_to_income_event.result}, {behavioral_score_event.result}"
+        with open('app/prompts/report_generation.txt', 'r', encoding='utf-8') as f:
+            user_prompt_template = f.read()
+        prompt = PromptTemplate.from_template(user_prompt_template)
+        llm = ChatOpenAI(
+        model="o3-mini",
+        #temperature=0.2,
+        reasoning_effort="medium",   # constrain reasoning effort (o-series models)
+    )
+        chain = prompt | llm
+        response = await chain.ainvoke({
+            "surplus_analysis":surplus_event.result["result"],
+            "dti_analysis":debt_to_income_event.result["result"],
+            "behavior_analysis":behavioral_score_event.result["result"]}
+        )
+        response = response.content
         #response = await self.llm.acomplete(prompt)
-        response = "Report Generated"
+        print("Generated Report:", response)
         return MyStopEvent(report=response)
     
     
