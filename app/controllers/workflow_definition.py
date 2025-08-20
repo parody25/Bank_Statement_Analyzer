@@ -64,11 +64,9 @@ class BehavioralScoreEvent(Event):
     
 
 class MyStopEvent(StopEvent):
-    #Report: CompletionResponse
-    report: str
-
-class BankStatementAnalyzer(Workflow):
+    report: Dict[str, Any]
     
+class BankStatementAnalyzer(Workflow):
     
     @step
     async def start(self, ctx: Context, ev: MyCustomStartEvent) -> TriggerCredit | TriggerDebit | None:
@@ -129,83 +127,98 @@ class BankStatementAnalyzer(Workflow):
     
     @step
     async def surplus_analysis(self, ctx: Context, ev: TriggerSurplus) -> SurplusAnalysisEvent:
-        #Get the Classify data from the Context
         credit_classify = await ctx.store.get("credit_classify_result")
         debit_classify = await ctx.store.get("debit_classify_result")
         
         #Using Dataframe operation for calculation and use the LLM to Reason over it 
         # For example, calculating surplus from credit and debit classifications
-        response = steps.surplus_commentry(credit_classify, debit_classify)
-        # Store the result in the context
-        print("Surplus Analysis Result:", response)
+        response_content = steps.surplus_commentry(credit_classify, debit_classify)
+        
+        # This step now generates a structured dictionary instead of just a string.
+        # NEW: Structured response
+        response = {
+            "title": "Surplus Position",
+            "content": response_content["result"] # Assuming surplus_commentry returns a dict with a 'result' key
+        }
+        
         await ctx.store.set("surplus_analysis_result", response)
-        #response = "This is the Response for Surplus Analysis Event"
         return SurplusAnalysisEvent(result=response)
     
     @step
     async def dti_analysis(self, ctx: Context, ev: TriggerDTI) -> DebtToIncomeEvent:
-        #Get the Classify data from the Context
         credit_classify = await ctx.store.get("credit_classify_result")
         debit_classify = await ctx.store.get("debit_classify_result")
         
-        #Using Dataframe operation for calculation and use the LLM to Reason over it
-        # For example, calculating debt-to-income ratio from credit and debit classifications
-        response = steps.dti_commentry(credit_classify, debit_classify)
-        await ctx.store.set("dti_analysis_result", response)
+        response_content = steps.dti_commentry(credit_classify, debit_classify)
         
-        #response = "This is the Response for Debit To Income Analysis Event"
+        # NEW: Structured response
+        response = {
+            "title": "Debt-to-Income (DTI) Ratio",
+            "content": response_content["result"]
+        }
+        
+        await ctx.store.set("dti_analysis_result", response)
         return DebtToIncomeEvent(result=response)
     
     @step
     async def behavioral_analysis(self, ctx: Context, ev: TriggerBehavioral) -> BehavioralScoreEvent:
-        #Get the Classify data from the Context
         credit_classify = await ctx.store.get("credit_classify_result")
         debit_classify = await ctx.store.get("debit_classify_result")
         
-        #Using Dataframe operation for calculation and use the LLM to Reason over it
-        # For example, calculating behavioral score from credit and debit classifications
-        response = steps.behavioral_commentry(credit_classify, debit_classify)
-        await ctx.store.set("behavioral_analysis_result", response)
+        response_content = steps.behavioral_commentry(credit_classify, debit_classify)
         
-        #response = "This is the Response for Behavioral Analysis & Score Event"
+        # NEW: Structured response
+        response = {
+            "title": "Behavioral Insights",
+            "content": response_content["result"]
+        }
+        
+        await ctx.store.set("behavioral_analysis_result", response)
         return BehavioralScoreEvent(result=response)
         
     @step
     async def report_generation(self, ctx: Context, ev: SurplusAnalysisEvent | DebtToIncomeEvent | BehavioralScoreEvent) -> MyStopEvent | None:
-        # Waiting all the analysis events to collect 
         data = ctx.collect_events(ev, [SurplusAnalysisEvent, DebtToIncomeEvent, BehavioralScoreEvent])
         
-        # check if we can run
         if data is None:
             return None
 
-        # unpack -- data is returned in order
-        surplus_event, debt_to_income_event, behavioral_score_event = data
-        # Generate the report based on the analysis results
-        # Note: This is a placeholder for the actual report generation logic
-        print("Surplus Analysis Result:", surplus_event.result["result"])
-        print("Debt to Income Analysis Result:", debt_to_income_event.result["result"])
-        print("Behavioral Score Analysis Result:", behavioral_score_event.result["result"])        
-        # Need to Modify the Code as per the prompt and LLM Call 
-        #prompt = f"Give a thorough analysis and generate report on the following questions mentioned for a particular customer Bank Statement and provide the confidence score on your analysis{surplus_event.result}, {debt_to_income_event.result}, {behavioral_score_event.result}"
-        with open('app/prompts/report_generation.txt', 'r', encoding='utf-8') as f:
-            user_prompt_template = f.read()
-        prompt = PromptTemplate.from_template(user_prompt_template)
-        llm = ChatOpenAI(
-        model="o3-mini",
-        #temperature=0.2,
-        reasoning_effort="medium",   # constrain reasoning effort (o-series models)
-    )
-        chain = prompt | llm
-        response = await chain.ainvoke({
-            "surplus_analysis":surplus_event.result["result"],
-            "dti_analysis":debt_to_income_event.result["result"],
-            "behavior_analysis":behavioral_score_event.result["result"]}
-        )
-        response = response.content
-        #response = await self.llm.acomplete(prompt)
-        print("Generated Report:", response)
-        return MyStopEvent(report=response)
+        surplus_event, dti_event, behavioral_event = data
+        
+        # --- MAJOR CHANGE: NO MORE LLM CALL HERE ---
+        # The new role of this step is to assemble the final structured report data.
+        
+        # You can add other sections generated by other LLM calls if needed,
+        # but here we assemble the results from previous steps.
+        report_data = {
+            "main_title": "Standard Bank Report",
+            "sections": [
+                # Example of adding a manually written or LLM-generated summary
+                {
+                    "title": "Customer Summary",
+                    "content": "The customer demonstrates several positive financial traits... (This could come from another analysis step or be generated here)"
+                },
+                surplus_event.result,
+                dti_event.result,
+                behavioral_event.result,
+                # You can add more static or dynamic sections here
+                {
+                    "title": "Risk Assessment",
+                    "content": "Credit Risk: While the overall DTI and behavioral indicators are strong... (and so on)"
+                },
+                {
+                    "title": "Conclusion & Recommendation",
+                    "content": "Final Remarks:\n The customer’s financial profile is marked by low overall debt..."
+                }
+            ],
+            "footer": {
+                "prepared_by": "Financial Analysis Department\nStandard Bank",
+                "date": "[Insert Date]"
+            }
+        }
+        
+        # The final event now carries the structured dictionary
+        return MyStopEvent(report=report_data)
     
     
 
