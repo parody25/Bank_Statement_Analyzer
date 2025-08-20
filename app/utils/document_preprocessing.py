@@ -41,6 +41,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 parser = LlamaParse(api_key=os.getenv("LLAMA_API_KEY"),
                 #structured_output_json_schema_name="bank_statement",structured_output=True
                 #result_type="markdown",
+                parsing_instruction = """While Parsing the Tables from the documents ensure that the column name is maintained across all the pages even if column name is mentioned only in the 1st page of the document.""",
                 result_type="json",
                 merge_tables_across_pages_in_markdown=False,
                 compact_markdown_table=False,
