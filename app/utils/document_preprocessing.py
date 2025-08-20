@@ -41,7 +41,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 parser = LlamaParse(api_key=os.getenv("LLAMA_API_KEY"),
                 #structured_output_json_schema_name="bank_statement",structured_output=True
                 #result_type="markdown",
-                parsing_instruction = """Parse the Tables from the documents as exactly as they are in the document.""",
+                parsing_instruction = """While Parsing the Tables from the documents ensure that the column name is maintained across all the pages even if column name is mentioned only in the 1st page of the document.""",
                 result_type="json",
                 merge_tables_across_pages_in_markdown=False,
                 compact_markdown_table=False,
@@ -143,7 +143,7 @@ def post_process_tables():
         else:
             # Read subsequent files with no header and assign same column names
             df = pd.read_csv(file_path, header=None)
-            print("Error Happening Here")
+            #print("Error Happening Here")
             df.columns = header_columns 
 
             # Check if first row matches header (i.e., it's actually a header row)
@@ -155,7 +155,7 @@ def post_process_tables():
         
         df_list.append(df)
     if df_list:
-        print("Error Happening Here")
+        #print("Error Happening Here")
         combined_df = pd.concat(df_list, ignore_index=True)
         # Standardize the column names using the GenAI take the column name and replace with the standard column names
         #combined_df.columns = [col.strip().lower().replace(' ', '_') for col in combined_df.columns]
