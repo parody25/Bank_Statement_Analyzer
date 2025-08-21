@@ -111,9 +111,9 @@ class BankStatementAnalyzer(Workflow):
             "title": "Surplus Position",
             "content": response_content["result"] # Assuming surplus_commentry returns a dict with a 'result' key
         }
-        self.emit("surplus_analysis", {"result": response.content})
+        self.emit("surplus_analysis", {"result": str(response.content)})
         
-        await ctx.store.set("surplus_analysis_result", response)
+        await ctx.store.set("surplus_analysis_result", str(response.content))
         return SurplusAnalysisEvent(result=response)
 
     @step
@@ -129,9 +129,9 @@ class BankStatementAnalyzer(Workflow):
             "title": "Debt-to-Income (DTI) Ratio",
             "content": response_content["result"]
         }
-        self.emit("dti_analysis", {"result": response.content})
+        self.emit("dti_analysis", {"result": str(response.content)})
         
-        await ctx.store.set("dti_analysis_result", response)
+        await ctx.store.set("dti_analysis_result", str(response.content))
         return DebtToIncomeEvent(result=response)
 
     @step
@@ -147,8 +147,8 @@ class BankStatementAnalyzer(Workflow):
             "title": "Behavioral Insights",
             "content": response_content["result"]
         }
-        self.emit("behavioral_analysis", {"result": response.content})
-        await ctx.store.set("behavioral_analysis_result", response)
+        self.emit("behavioral_analysis", {"result": str(response.content)})
+        await ctx.store.set("behavioral_analysis_result", str(response.content))
         return BehavioralScoreEvent(result=response)
 
     @step

@@ -41,7 +41,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 parser = LlamaParse(api_key=os.getenv("LLAMA_API_KEY"),
                 #structured_output_json_schema_name="bank_statement",structured_output=True
                 #result_type="markdown",
-                parsing_instruction = """While Parsing the Tables from the documents ensure that the column name is maintained across all the pages even if column name is mentioned only in the 1st page of the document.""",
+                system_prompt = """While Parsing the Tables from the documents ensure that the column name is maintained across all the pages even if column name is mentioned only in the 1st page of the document.""",
                 result_type="json",
                 merge_tables_across_pages_in_markdown=False,
                 compact_markdown_table=False,
@@ -54,13 +54,13 @@ class AlignedResponse(BaseModel):
     aligned_table: bool
     rename: Dict[str, str]
 
-SYSTEM_PROMPT = """
-You are a data quality assistant specialized in verifying tabular data structure and standardizing column names for financial transaction data.
+# SYSTEM_PROMPT = """
+# You are a data quality assistant specialized in verifying tabular data structure and standardizing column names for financial transaction data.
 
-Your output must be a JSON with two keys:
-- standardized_table: boolean (true if the table is standardized, false if any corrections are needed)
-- rename: a dictionary mapping old column names to their standardized names
-"""
+# Your output must be a JSON with two keys:
+# - standardized_table: boolean (true if the table is standardized, false if any corrections are needed)
+# - rename: a dictionary mapping old column names to their standardized names
+# """
 
 # Supported file types mapped to the parser
 FILE_EXTRACTOR = {
