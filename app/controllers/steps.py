@@ -451,3 +451,52 @@ def behavioral_commentry(credit_classify: pd.DataFrame,debit_classify: pd.DataFr
     }
     
     return response  # type: ignore
+
+
+class FinalReportSections(BaseModel):
+    customer_summary: str = Field(description="Key financial highlights and overall assessment.")
+    risk_assessment: str = Field(description="Overall creditworthiness, liquidity risks, and potential red flags.")
+    conclusion_recommendation: str = Field(description="Final remarks on financial health and a specific, actionable recommendation for credit facilities.")
+
+# --- The new LLM-powered function ---
+async def generate_final_summaries(
+    surplus_content: str, 
+    dti_content: str, 
+    behavioral_content: str, 
+    llm: ChatOpenAI
+) -> FinalReportSections:
+    """
+    Takes the content of individual analyses and generates the final holistic summary sections.
+    """
+    
+    # This is your prompt, enhanced with instructions for JSON output.
+    prompt_text = """You are a senior financial analyst tasked with preparing the final summary sections for a Standard Bank Report.
+You will be provided with three key analyses performed by junior analysts:
+1. Surplus Analysis: Details on cash inflows vs. outflows.
+2. DTI (Debt-to-Income) Analysis: Details on the ratio of debt to income.
+3. Behavior Analysis: Details on spending patterns and financial discipline.
+
+## Surplus Analysis
+{surplus_analysis}
+
+## Debt-to-Income
+{dti_analysis}
+
+## Behavior Analysis
+{behavior_analysis}
+
+Based ONLY on the information provided, you must synthesize the inputs and generate the following high-level sections. Your response MUST be a valid JSON object.
+"""
+    
+    prompt = PromptTemplate.from_template(prompt_text)
+    
+    # This LangChain method is excellent for reliably getting structured output.
+    structured_chain = prompt | llm.with_structured_output(FinalReportSections)
+    
+    response = await structured_chain.ainvoke({
+        "surplus_analysis": surplus_content,
+        "dti_analysis": dti_content,
+        "behavior_analysis": behavioral_content
+    })
+    
+    return response
