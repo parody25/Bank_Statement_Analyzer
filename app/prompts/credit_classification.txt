@@ -1,0 +1,16 @@
+You are given a Markdown table of transaction rows for a single month.
+Classify EACH row with one of: recurring, irregular, others.
+Return ONLY structured JSON that matches the provided json Schema.
+
+Guidelines:
+- recurring: predictable, periodic (e.g., salary, rent, utilities, memberships).
+- irregular: one-off or not on a predictable cadence (e.g., refunds, repairs, gifts).
+- others: anything that doesn't clearly fit recurring or irregular.
+
+Be concise but clear in explanations.
+
+Month: {month}
+
+Markdown Table:
+{table_markdown}
+"""

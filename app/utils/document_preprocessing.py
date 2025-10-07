@@ -41,6 +41,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 parser = LlamaParse(api_key=os.getenv("LLAMA_API_KEY"),
                 #structured_output_json_schema_name="bank_statement",structured_output=True
                 #result_type="markdown",
+                system_prompt = """While Parsing the Tables from the documents ensure that the column name is maintained across all the pages even if column name is mentioned only in the 1st page of the document.""",
                 result_type="json",
                 merge_tables_across_pages_in_markdown=False,
                 compact_markdown_table=False,
@@ -53,13 +54,13 @@ class AlignedResponse(BaseModel):
     aligned_table: bool
     rename: Dict[str, str]
 
-SYSTEM_PROMPT = """
-You are a data quality assistant specialized in verifying tabular data structure and standardizing column names for financial transaction data.
+# SYSTEM_PROMPT = """
+# You are a data quality assistant specialized in verifying tabular data structure and standardizing column names for financial transaction data.
 
-Your output must be a JSON with two keys:
-- standardized_table: boolean (true if the table is standardized, false if any corrections are needed)
-- rename: a dictionary mapping old column names to their standardized names
-"""
+# Your output must be a JSON with two keys:
+# - standardized_table: boolean (true if the table is standardized, false if any corrections are needed)
+# - rename: a dictionary mapping old column names to their standardized names
+# """
 
 # Supported file types mapped to the parser
 FILE_EXTRACTOR = {
@@ -142,6 +143,7 @@ def post_process_tables():
         else:
             # Read subsequent files with no header and assign same column names
             df = pd.read_csv(file_path, header=None)
+            #print("Error Happening Here")
             df.columns = header_columns 
 
             # Check if first row matches header (i.e., it's actually a header row)
@@ -153,6 +155,7 @@ def post_process_tables():
         
         df_list.append(df)
     if df_list:
+        #print("Error Happening Here")
         combined_df = pd.concat(df_list, ignore_index=True)
         # Standardize the column names using the GenAI take the column name and replace with the standard column names
         #combined_df.columns = [col.strip().lower().replace(' ', '_') for col in combined_df.columns]

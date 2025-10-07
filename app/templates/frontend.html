@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bank Statement Analyzer (Live Upload + Progress)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen font-sans flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-indigo-700 text-white py-4 shadow text-center">
+    <h1 class="text-xl font-bold">📊 Bank Statement Analyzer</h1>
+  </header>
+
+  <main class="flex-grow container mx-auto p-6 max-w-3xl">
+    <div class="bg-white shadow-lg rounded-lg p-6">
+      <h2 class="text-lg font-semibold mb-4">Upload Documents</h2>
+
+      <!-- File Upload Input -->
+      <input
+        id="file-input"
+        type="file"
+        multiple
+        accept=".pdf,.xls,.xlsx,.png,.jpg,.jpeg"
+        class="border rounded p-2 w-full mb-4"
+      />
+
+      <!-- Buttons side-by-side -->
+      <div class="flex items-center mb-3 space-x-4">
+        <!-- Upload and Run Workflow Button -->
+        <button
+          id="upload-btn"
+          class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded"
+        >
+          Preprocess and Run Workflow
+        </button>
+
+        <!-- Run Workflow (no upload) Button -->
+        <button
+          id="run-btn"
+          class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+        >
+          Run Workflow
+        </button>
+      </div>
+
+      <!-- Upload Status -->
+      <div id="upload-status" class="mb-3 text-sm text-gray-700"></div>
+
+      <hr class="my-6" />
+
+      <h2 class="text-lg font-semibold mb-3">Workflow Progress</h2>
+
+      <!-- Live Progress Area -->
+      <div id="progress" class="mb-6 space-y-2 max-h-80 overflow-auto border p-3 rounded bg-gray-50"></div>
+
+      <!-- Final Report -->
+      <div id="report-box" class="mt-8 bg-indigo-50 border border-indigo-200 p-4 rounded hidden">
+        <h3 class="font-semibold mb-2 text-indigo-800">📄 Final Report</h3>
+        <pre id="report" class="whitespace-pre-wrap text-sm text-gray-800"></pre>
+      </div>
+    </div>
+  </main>
+
+  <footer class="bg-gray-200 text-center py-2 text-sm text-gray-600">
+    © 2025 Bank Analyzer
+  </footer>
+
+  <script>
+    const uploadBtn = document.getElementById("upload-btn");
+    const runBtn = document.getElementById("run-btn");
+    const fileInput = document.getElementById("file-input");
+    const uploadStatus = document.getElementById("upload-status");
+    const progressDiv = document.getElementById("progress");
+    const reportDiv = document.getElementById("report-box");
+    const reportPre = document.getElementById("report");
+
+    function addProgress(message, type = "info") {
+      const colors =
+        type === "error"
+          ? "bg-red-100 text-red-700"
+          : type === "step"
+          ? "bg-green-50 text-green-600"
+          : type === "debug"
+          ? "bg-gray-200 text-gray-600"
+          : "bg-blue-50 text-blue-700";
+      const div = document.createElement("div");
+      div.className = `p-2 rounded ${colors} text-sm`;
+      div.textContent = message;
+      progressDiv.appendChild(div);
+      progressDiv.scrollTop = progressDiv.scrollHeight;
+    }
+
+    async function connectWebSocket() {
+      reportDiv.classList.add("hidden");
+      progressDiv.innerHTML = ""; // Clear previous logs
+
+      let protocol = location.protocol === "https:" ? "wss" : "ws";
+      let ws = new WebSocket(`${protocol}://${location.host}/api/v1/ws/run`);
+
+      ws.onopen = () => {
+        addProgress("Connected to workflow backend...", "debug");
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        const { event: evt, data } = msg;
+
+        if (evt === "report") {
+          reportDiv.classList.remove("hidden");
+          reportPre.textContent = data;
+          addProgress("Final report generated.", "step");
+        } else if (evt === "done") {
+          addProgress("Workflow complete.", "step");
+        } else if (evt === "error") {
+          addProgress("Error: " + data, "error");
+        } else if (evt === "debug") {
+          addProgress("[Debug] " + JSON.stringify(data), "debug");
+        } else if (evt === "info" || evt === "step") {
+          addProgress(data, evt);
+        } else {
+          addProgress(`[${evt}] ${typeof data === "string" ? data : JSON.stringify(data)}`, "step");
+        }
+      };
+
+      ws.onerror = () => {
+        addProgress("WebSocket error!", "error");
+      };
+
+      ws.onclose = () => {
+        addProgress("WebSocket connection closed.", "debug");
+      };
+    }
+
+    uploadBtn.onclick = async () => {
+      uploadStatus.textContent = "";
+      if (!fileInput.files.length) {
+        uploadStatus.textContent = "Please select one or more files to upload.";
+        uploadStatus.className = "text-red-600";
+        return;
+      }
+
+      const formData = new FormData();
+      for (const file of fileInput.files) {
+        formData.append("files", file);
+      }
+
+      uploadStatus.textContent = "Uploading files...";
+      uploadStatus.className = "text-gray-700";
+
+      try {
+        const res = await fetch("/api/v1/upload/file", {
+          method: "POST",
+          body: formData,
+        });
+
+        const data = await res.json();
+
+        // Show upload summary
+        const successes = data.results.filter((r) => r.status === "success");
+        const failures = data.results.filter((r) => r.status !== "success");
+
+        uploadStatus.innerHTML = `Upload complete. Success: ${successes.length}, Failed: ${failures.length}`;
+
+        if (failures.length) {
+          uploadStatus.innerHTML += `<br/>Failed files: ${failures
+            .map((f) => f.filename + ": " + f.reason)
+            .join(", ")}`;
+          uploadStatus.className = "text-red-600";
+        } else {
+          uploadStatus.className = "text-green-700";
+        }
+
+        // Automatically connect to WebSocket to display live workflow progress after upload
+        connectWebSocket();
+      } catch (error) {
+        uploadStatus.textContent = "Upload failed: " + error.message;
+        uploadStatus.className = "text-red-600";
+      }
+    };
+
+    runBtn.onclick = async () => {
+      uploadStatus.textContent = "";
+      reportDiv.classList.add("hidden");
+      progressDiv.innerHTML = ""; // Clear previous logs
+
+      try {
+        // Connect WebSocket to run workflow on existing backend files without uploading new ones
+        connectWebSocket();
+      } catch (error) {
+        uploadStatus.textContent = "Failed to start workflow: " + error.message;
+        uploadStatus.className = "text-red-600";
+      }
+    };
+  </script>
+</body>
+</html>

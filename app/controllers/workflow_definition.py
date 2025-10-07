@@ -6,162 +6,199 @@ from llama_index.core.workflow import (
     step,
     Context
 )
-from llama_index.llms.openai import OpenAI
-
-from llama_index.utils.workflow import (
-    draw_all_possible_flows,
-    draw_most_recent_execution,
-)
+import pandas as pd
+from typing import Dict, Any
+from . import steps
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+import asyncio
 
 
 class MyCustomStartEvent(StartEvent):
-    #document: dataframe
-    document: str
-    
-    
+    document: pd.DataFrame
+
+
 class TriggerCredit(Event): pass
 class TriggerDebit(Event): pass
-
 class TriggerSurplus(Event): pass
-class TriggerDTI(Event): pass 
+class TriggerDTI(Event): pass
 class TriggerBehavioral(Event): pass
-    
+
+
 class CreditClassifyEvent(Event):
-    #result: 
-    result: str
-    
+    result: pd.DataFrame
+
+
 class DebitClassifyEvent(Event):
-    #result:
-    result: str
-    
+    result: pd.DataFrame
+
+
 class SurplusAnalysisEvent(Event):
-    #result:
-    result: str
-    
+    result: Dict[str, Any]
+
+
 class DebtToIncomeEvent(Event):
-    #result:
-    result: str 
-    
+    result: Dict[str, Any]
+
+
 class BehavioralScoreEvent(Event):
-    #result:
-    result: str
-    
-    
+    result: Dict[str, Any]
+
 
 class MyStopEvent(StopEvent):
-    #Report: CompletionResponse
-    report: str
+    report: Dict[str, Any]
 
 class BankStatementAnalyzer(Workflow):
-    
-    
+
+    def emit(self, event_name, payload):
+        if hasattr(self, "_emitter") and self._emitter:
+            asyncio.create_task(self._emitter(event_name, payload))
+
     @step
     async def start(self, ctx: Context, ev: MyCustomStartEvent) -> TriggerCredit | TriggerDebit | None:
-        #Store the Dataframe in the Context
+        self.emit("info", {"message": "Starting step: start"})
         await ctx.store.set("document", ev.document)
-        
-        # Trigger parallel classification steps
-        ctx.send_event(TriggerCredit())  # no Payload Needed
+        self.emit("start", {"message": "Starting workflow. Document loaded."})
+        ctx.send_event(TriggerCredit())
         ctx.send_event(TriggerDebit())
-        
-        
-    
-        
-    
+
     @step
     async def credit_classify(self, ctx: Context, ev: TriggerCredit) -> CreditClassifyEvent:
-        
-        #Get the Dataframe in the Context
+        self.emit("info", {"message": "Starting step: credit_classify"})
         document = await ctx.store.get("document")
-        #Filter the credit transaction using the Dataframe and Use LLM to classify the Event 
-        #Store the Dataframe for credit transaction classified in the context 
-        response = "This is the Response for CreditClassifyEvent"
+        response = steps.credit_analysis(document)
+        await ctx.store.set("credit_classify_result", response)
+        self.emit("credit_classification", {"result": str(response)})
+        print("Credit Classification Result:", response)
         return CreditClassifyEvent(result=response)
-    
+
     @step
     async def debit_classify(self, ctx: Context, ev: TriggerDebit) -> DebitClassifyEvent:
-        
-        #Get the Dataframe in the Context
+        self.emit("info", {"message": "Starting step: debit_classify"})
         document = await ctx.store.get("document")
-        #Filter the Debit transaction using the Dataframe and Use LLM to classify the Event 
-        #Store the Dataframe for debit transaction classified in the context 
-        response = "This is the Response for DebitClassifyEvent"
+        response = steps.debit_analysis(document)
+        await ctx.store.set("debit_classify_result", response)
+        self.emit("debit_classification", {"result": str(response)})
+        print("Debit Classification Result:", response)
         return DebitClassifyEvent(result=response)
 
     @step
     async def join_for_surplus(self, ctx: Context, ev: CreditClassifyEvent | DebitClassifyEvent) -> TriggerSurplus | TriggerDTI | TriggerBehavioral | None:
+        self.emit("info", {"message": "Starting step: join_for_surplus"})
         results = ctx.collect_events(ev, [CreditClassifyEvent, DebitClassifyEvent])
         if results is None:
             return None
         credit_event, debit_event = results
-        
-        #Storing the Classification results in the Context
-        await ctx.store.set("credit_classify_result",ev.result)
-        await ctx.store.set("debit_classify_result",ev.result)
-        
-        # Send the Events to Execute Parallely
+        self.emit("joined_classification", {"message": "Credit and Debit classifications completed."})
         ctx.send_event(TriggerSurplus())
         ctx.send_event(TriggerDTI())
         ctx.send_event(TriggerBehavioral())
-    
+
     @step
     async def surplus_analysis(self, ctx: Context, ev: TriggerSurplus) -> SurplusAnalysisEvent:
-        #Get the Classify data from the Context
+        self.emit("info", {"message": "Starting step: surplus_analysis"})
         credit_classify = await ctx.store.get("credit_classify_result")
         debit_classify = await ctx.store.get("debit_classify_result")
         
-        #Using Dataframe operation for calculation and use the LLM to Reason over it 
+        response_content = steps.surplus_commentry(credit_classify, debit_classify)
         
-        response = "This is the Response for Surplus Analysis Event"
+        response = {
+            "title": "Surplus Position",
+            "content": response_content["result"]
+        }
+
+        self.emit("surplus_analysis", {"result": response['content']})
+        
+        # Store the ENTIRE dictionary for the report_generation step.
+        await ctx.store.set("surplus_analysis_result", response)
+        
         return SurplusAnalysisEvent(result=response)
-    
+
     @step
     async def dti_analysis(self, ctx: Context, ev: TriggerDTI) -> DebtToIncomeEvent:
-        #Get the Classify data from the Context
+        self.emit("info", {"message": "Starting step: dti_analysis"})
         credit_classify = await ctx.store.get("credit_classify_result")
         debit_classify = await ctx.store.get("debit_classify_result")
         
-        #Using Dataframe operation for calculation and use the LLM to Reason over it 
+        response_content = steps.dti_commentry(credit_classify, debit_classify)
         
-        response = "This is the Response for Debit To Income Analysis Event"
+        response = {
+            "title": "Debt-to-Income (DTI) Ratio",
+            "content": response_content["result"]
+        }
+        
+        # This is for the UI, sending just the text is fine.
+        self.emit("dti_analysis", {"result": response['content']})
+        
+        await ctx.store.set("dti_analysis_result", response)
+        
         return DebtToIncomeEvent(result=response)
-    
+
     @step
     async def behavioral_analysis(self, ctx: Context, ev: TriggerBehavioral) -> BehavioralScoreEvent:
-        #Get the Classify data from the Context
+        self.emit("info", {"message": "Starting step: behavioral_analysis"})
         credit_classify = await ctx.store.get("credit_classify_result")
         debit_classify = await ctx.store.get("debit_classify_result")
         
-        #Using Dataframe operation for calculation and use the LLM to Reason over it 
+        response_content = steps.behavioral_commentry(credit_classify, debit_classify)
         
-        response = "This is the Response for Debit To Behavioral Analysis & Score Event"
+        response = {
+            "title": "Behavioral Insights",
+            "content": response_content["result"]
+        }
+
+        # This is for the UI, sending just the text is fine.
+        self.emit("behavioral_analysis", {"result": response['content']})
+
+        await ctx.store.set("behavioral_analysis_result", response)
+
         return BehavioralScoreEvent(result=response)
-        
+
     @step
     async def report_generation(self, ctx: Context, ev: SurplusAnalysisEvent | DebtToIncomeEvent | BehavioralScoreEvent) -> MyStopEvent | None:
-        # Waiting all the analysis events to collect 
+        self.emit("info", {"message": "Starting step: report_generation"})
         data = ctx.collect_events(ev, [SurplusAnalysisEvent, DebtToIncomeEvent, BehavioralScoreEvent])
-        
-        # check if we can run
         if data is None:
             return None
 
-        # unpack -- data is returned in order
-        surplus_event, debt_to_income_event, behavioral_score_event = data
+        surplus_event, dti_event, behavioral_event = data
+        self.emit("info", {"message": "All analyses complete. Generating final summaries..."})
+
+        # Initialize the LLM client once
+        llm = ChatOpenAI(model="o3-mini", reasoning_effort="medium")
+
+        # Call our new function to get the AI-generated summary sections
+        final_sections = await steps.generate_final_summaries(
+            surplus_content=surplus_event.result["content"],
+            dti_content=dti_event.result["content"],
+            behavioral_content=behavioral_event.result["content"],
+            llm=llm
+        )
+
+        # Assemble the final, complete report structure
+        report_data = {
+            "main_title": "Standard Bank Report",
+            "sections": [
+                # Section 1: Generated by the LLM
+                {"title": "1. Customer Summary", "content": final_sections.customer_summary},
+                
+                # Sections 2, 3, 4: Directly from our previous structured steps
+                surplus_event.result,
+                dti_event.result,
+                behavioral_event.result,
+                
+                # Section 5: Generated by the LLM
+                {"title": "5. Risk Assessment", "content": final_sections.risk_assessment},
+                
+                # Section 6: Generated by the LLM
+                {"title": "6. Conclusion & Recommendation", "content": final_sections.conclusion_recommendation}
+            ],
+            "footer": {
+                "prepared_by": "Financial Analysis Department\nStandard Bank",
+                "date": "[Insert Date]"
+            }
+        }
         
-        # Need to Modify the Code as per the prompt and LLM Call 
-        prompt = f"Give a thorough analysis and generate report on the following questions mentioned for a particular customer Bank Statement and provide the confidence score on your analysis{surplus_event.result}, {debt_to_income_event.result}, {behavioral_score_event.result}"
-        #response = await self.llm.acomplete(prompt)
-        response = "Report Generated"
-        return MyStopEvent(report=response)
-    
-    
-
-    
-
-
-
-# Running the workflow
-#workflow_run = BankStatementAnalyzer(timeout=60, verbose=False)
-#result = await workflow_run.run(document="Bank statement content goes here.")
-#print(str(result))
+        self.emit("report_generated", {"report": report_data})
+        print("Generated Final Report Structure:", report_data)
+        return MyStopEvent(report=report_data)

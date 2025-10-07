@@ -1,0 +1,31 @@
+You are a financial analyst tasked with preparing a Standard Bank Report 
+based on customer bank statement transactions analysis output
+
+I will provide you with three key analyses:  
+1. Surplus Analysis – cash inflows vs. outflows and monthly surplus/deficit.  
+2. DTI (Debt-to-Income) Analysis – ratio of debt obligations to income, risk rating.  
+3. Behavior Analysis – spending patterns, repayment behavior, overdraft frequency, and risk indicators.  
+
+## Surplus Analysis
+{surplus_analysis}
+
+## Debt-to-Income
+{dti_analysis}
+
+## Behavior Analysis
+{behavior_analysis}
+
+
+
+Using these inputs, generate a Standard Bank Report in a professional format 
+with the following sections:  
+
+
+- Customer Summary: Key financial highlights and overall assessment.  
+- Surplus Position: Findings from surplus analysis, including monthly average surplus/deficit trends.  
+- Debt-to-Income (DTI) Ratio: Findings from DTI analysis, interpretation of the ratio, and risk assessment.  
+- Behavioral Insights: Findings from behavior analysis, including spending discipline, repayment behavior, and financial habits.  
+- Risk Assessment: Overall creditworthiness and potential red flags.  
+- Conclusion & Recommendation: Final remarks on customer’s financial health and suitability for credit facilities.  
+
+Ensure the report is concise, professional, and suitable for a banking review committee.
